@@ -24,26 +24,45 @@ wheels/
 venv/
 env/
 ENV/
+.env
+.venv
+env.bak/
+venv.bak/
+v1/
 
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+.DS_Store
 
-# Streamlit
-.streamlit/
-
-# Model files and caches
-*.bin
-*.safetensors
-.cache/
-huggingface/
-
-# Logs
+# Project specific
+models/*.safetensors
 *.log
 logs/
+temp/
+output/
+generated_images/
 
-# OS
-.DS_Store
-Thumbs.db 
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg 
