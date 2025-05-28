@@ -46,7 +46,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Title and description
-st.title("🎨 AI Image Generator")
+st.title("IP-Adapter Image Generator")
 st.markdown(load_template("cards").split("<!-- Description Card -->")[1], unsafe_allow_html=True)
 
 # Tab selection

@@ -41,6 +41,14 @@ def render_image_to_image_tab():
             init_image = Image.open(uploaded_file)
             st.image(init_image, caption="Original Image", use_container_width=True)
         
+        # IP-Adapter image upload if enabled
+        ip_adapter_image = None
+        if model_config.get("use_ip_adapter", False):
+            ip_uploaded_file = st.file_uploader("Upload reference image for IP-Adapter", type=SUPPORTED_IMAGE_FORMATS, key="img2img_ip_adapter")
+            if ip_uploaded_file is not None:
+                ip_adapter_image = Image.open(ip_uploaded_file)
+                st.image(ip_adapter_image, caption="Reference Image", use_column_width=True)
+        
         # Text input with a larger text area
         prompt = st.text_area(
             "Enter your prompt:",
@@ -53,9 +61,21 @@ def render_image_to_image_tab():
         # Parameters section
         st.markdown(load_template("cards").split("<!-- Parameters Card -->")[1].split("<!-- Output Card -->")[0], unsafe_allow_html=True)
         
-        num_inference_steps = st.slider("Number of inference steps", 20, 50, DEFAULT_STEPS, key="img2img_steps")
+        # Image size controls
+        col_width, col_height = st.columns(2)
+        with col_width:
+            width = st.number_input("Width", min_value=256, max_value=1024, value=512, step=64, key="img2img_width")
+        with col_height:
+            height = st.number_input("Height", min_value=256, max_value=1024, value=512, step=64, key="img2img_height")
+        
+        num_inference_steps = st.slider("Number of inference steps", 20, 100, DEFAULT_STEPS, key="img2img_steps")
         guidance_scale = st.slider("Guidance scale", 1.0, 20.0, DEFAULT_GUIDANCE_SCALE, key="img2img_guidance")
         strength = st.slider("Transformation strength", 0.0, 1.0, DEFAULT_STRENGTH, key="img2img_strength")
+        
+        # IP-Adapter scale if enabled
+        ip_adapter_scale = None
+        if model_config.get("use_ip_adapter", False):
+            ip_adapter_scale = st.slider("IP-Adapter influence", 0.0, 1.0, model_config.get("ip_adapter_scale", 0.6), key="img2img_ip_scale")
         
         # Seed control
         seed = st.number_input("Seed (for reproducibility)", value=DEFAULT_SEED, step=1, key="img2img_seed")
@@ -65,97 +85,58 @@ def render_image_to_image_tab():
 
     with col2:
         # Output section
-        st.markdown(load_template("cards").split("<!-- Output Card -->")[1].split("<!-- Description Card -->")[0], unsafe_allow_html=True)
+        st.markdown(load_template("cards").split("<!-- Output Card -->")[1], unsafe_allow_html=True)
         
         # Placeholder for the generated image
         image_placeholder = st.empty()
         
         if generate_button and prompt and uploaded_file is not None:
-            # Create loading animation
-            loading_container = st.empty()
-            loading_container.markdown(load_template("loading"), unsafe_allow_html=True)
-            
             try:
-                # Load the selected model
-                with st.spinner("Loading models..."):
-                    pipes = load_model(selected_model, img2img=True)
-                    base_pipe = pipes["base"]
-                    refiner_pipe = pipes["refiner"]
+                # Create loading animation
+                loading_container = st.empty()
+                with loading_container:
+                    st.spinner("Loading model...")
                 
-                # Create progress bar and time display
-                progress_bar = st.progress(0)
+                # Load model
+                pipe = load_model(selected_model, img2img=True)
+                
+                # Create progress bar
+                progress_bar = st.empty()
                 progress_text = st.empty()
                 time_text = st.empty()
                 
-                # Track start time
-                start_time = time.time()
-                
-                # Create a callback to update progress
+                # Progress callback
                 def progress_callback(step, timestep, latents):
-                    current_time = time.time()
-                    elapsed_time = current_time - start_time
-                    
-                    # Calculate progress
-                    progress = min(int((step + 1) / num_inference_steps * 100), 100)
-                    
-                    # Calculate estimated time remaining
-                    if step > 0:
-                        time_per_step = elapsed_time / step
-                        remaining_steps = num_inference_steps - step
-                        estimated_time_remaining = time_per_step * remaining_steps
-                        
-                        # Format time remaining in minutes and seconds
-                        minutes = int(estimated_time_remaining // 60)
-                        seconds = int(estimated_time_remaining % 60)
-                        time_str = f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
-                        
-                        # Update progress and time displays
-                        progress_bar.progress(progress)
-                        progress_text.markdown(
-                            f'<span style="color: #FFD700">Transforming image... {progress}%</span>', 
-                            unsafe_allow_html=True
-                        )
-                        time_text.markdown(
-                            f'<span style="color: #FFD700">Time remaining: {time_str}</span>', 
-                            unsafe_allow_html=True
-                        )
+                    progress = step / num_inference_steps
+                    progress_bar.progress(progress)
+                    progress_text.text(f"Step {step}/{num_inference_steps}")
+                    time_text.text(f"Timestep: {timestep:.2f}")
                 
-                # Set deterministic seed
+                # Set up generator for reproducibility
                 generator = torch.Generator(device="cpu").manual_seed(seed)
                 
-                # Generate image with base model
-                with torch.no_grad():
-                    # First stage: Generate with base model
-                    progress_text.markdown(
-                        '<span style="color: #FFD700">Stage 1: Generating with base model...</span>', 
-                        unsafe_allow_html=True
-                    )
-                    base_image = base_pipe(
-                        prompt=prompt,
-                        image=init_image,
-                        num_inference_steps=num_inference_steps,
-                        guidance_scale=guidance_scale,
-                        strength=strength,
-                        generator=generator,
-                        callback=progress_callback,
-                        callback_steps=1
-                    ).images[0]
-                    
-                    # Second stage: Refine with refiner model
-                    progress_text.markdown(
-                        '<span style="color: #FFD700">Stage 2: Refining with refiner model...</span>', 
-                        unsafe_allow_html=True
-                    )
-                    refined_image = refiner_pipe(
-                        prompt=prompt,
-                        image=base_image,
-                        num_inference_steps=num_inference_steps,
-                        guidance_scale=guidance_scale,
-                        strength=strength,
-                        generator=generator,
-                        callback=progress_callback,
-                        callback_steps=1
-                    ).images[0]
+                # Prepare generation parameters
+                gen_params = {
+                    "prompt": prompt,
+                    "image": init_image,
+                    "height": height,
+                    "width": width,
+                    "num_inference_steps": num_inference_steps,
+                    "guidance_scale": guidance_scale,
+                    "strength": strength,
+                    "generator": generator,
+                    "callback": progress_callback,
+                    "callback_steps": 1
+                }
+                
+                # Add IP-Adapter parameters if enabled
+                if model_config.get("use_ip_adapter", False) and ip_adapter_image is not None:
+                    gen_params["ip_adapter_image"] = ip_adapter_image
+                    if ip_adapter_scale is not None:
+                        pipe.set_ip_adapter_scale(ip_adapter_scale)
+                
+                # Generate image with progress callback
+                image = pipe(**gen_params).images[0]
                 
                 # Clear loading animation and progress
                 loading_container.empty()
@@ -163,16 +144,16 @@ def render_image_to_image_tab():
                 progress_text.empty()
                 time_text.empty()
                 
-                # Display refined image
-                image_placeholder.image(refined_image, caption="Refined Image", use_container_width=True)
+                # Display image
+                image_placeholder.image(image, caption=f"Transformed Image using {selected_model} style", use_container_width=True)
                 
                 # Add download button
                 buf = io.BytesIO()
-                refined_image.save(buf, format="PNG")
+                image.save(buf, format="PNG")
                 st.download_button(
-                    label="⬇️ Download Refined Image",
+                    label="⬇️ Download Image",
                     data=buf.getvalue(),
-                    file_name=f"{selected_model.lower()}_style_refined.png",
+                    file_name=f"{selected_model.lower()}_style_transformed.png",
                     mime="image/png"
                 )
                 

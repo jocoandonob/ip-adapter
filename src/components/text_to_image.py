@@ -49,6 +49,13 @@ def render_text_to_image_tab():
         # Parameters section
         st.markdown(load_template("cards").split("<!-- Parameters Card -->")[1].split("<!-- Output Card -->")[0], unsafe_allow_html=True)
         
+        # Image size controls
+        col_width, col_height = st.columns(2)
+        with col_width:
+            width = st.number_input("Width", min_value=256, max_value=1024, value=512, step=64)
+        with col_height:
+            height = st.number_input("Height", min_value=256, max_value=1024, value=512, step=64)
+        
         num_inference_steps = st.slider("Number of inference steps", 20, 100, DEFAULT_STEPS)
         guidance_scale = st.slider("Guidance scale", 1.0, 20.0, DEFAULT_GUIDANCE_SCALE)
         
@@ -99,6 +106,8 @@ def render_text_to_image_tab():
                     # Prepare generation parameters
                     gen_params = {
                         "prompt": prompt,
+                        "height": height,
+                        "width": width,
                         "num_inference_steps": num_inference_steps,
                         "guidance_scale": guidance_scale,
                         "generator": generator,

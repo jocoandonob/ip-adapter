@@ -44,35 +44,29 @@ def load_model(model_name, img2img=False, inpainting=False):
                 # Convert to inpainting pipeline
                 pipe = AutoPipelineForInpainting.from_pipe(base_pipe)
             elif img2img:
-                # Load base model
-                base_pipe = DiffusionPipeline.from_pretrained(
-                    "stabilityai/stable-diffusion-xl-base-1.0",
+                # Load base pipeline with IP-Adapter support
+                pipe = AutoPipelineForImage2Image.from_pretrained(
+                    config["base_model"],
                     torch_dtype=torch.float32,
                     variant="fp16",
-                    use_safetensors=True,
+                    use_safetensors=config["use_safetensors"],
                     token=hf_token
                 )
                 
-                # Load refiner model with shared components
-                refiner_pipe = DiffusionPipeline.from_pretrained(
-                    "stabilityai/stable-diffusion-xl-refiner-1.0",
-                    text_encoder_2=base_pipe.text_encoder_2,
-                    vae=base_pipe.vae,
-                    torch_dtype=torch.float32,
-                    use_safetensors=True,
-                    variant="fp16",
-                    token=hf_token
-                )
+                # Load IP-Adapter if specified in config
+                if config.get("use_ip_adapter", False):
+                    pipe.load_ip_adapter(
+                        "h94/IP-Adapter",
+                        subfolder="sdxl_models",
+                        weight_name="ip-adapter_sdxl.bin"
+                    )
+                    pipe.set_ip_adapter_scale(config.get("ip_adapter_scale", 0.6))
                 
-                # Move models to GPU if available
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                base_pipe = base_pipe.to(device)
-                refiner_pipe = refiner_pipe.to(device)
+                # Load LoRA weights if specified
+                if config.get("lora_path"):
+                    pipe.load_lora_weights(config["lora_path"])
                 
-                # Load LoRA weights for base model
-                base_pipe.load_lora_weights(config["lora_path"])
-                
-                return {"base": base_pipe, "refiner": refiner_pipe}
+                return pipe
             else:
                 # Load base pipeline with IP-Adapter support
                 pipe = AutoPipelineForText2Image.from_pretrained(
