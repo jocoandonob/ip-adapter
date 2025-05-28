@@ -30,27 +30,43 @@ def load_models():
         subfolder="sdxl_models"
     )
     
+    # Download base model files
+    base_model_path = hf_hub_download(
+        repo_id="stabilityai/stable-diffusion-xl-base-1.0",
+        filename="model_index.json"
+    )
+    
     # Load text-to-image pipeline
     text2img_pipeline = AutoPipelineForText2Image.from_pretrained(
         "stabilityai/stable-diffusion-xl-base-1.0",
-        torch_dtype=torch.float32  # Changed to float32 for CPU
+        torch_dtype=torch.float32,  # Changed to float32 for CPU
+        use_safetensors=True,
+        local_files_only=False
     )
+    
+    # Load IP-Adapter weights
     text2img_pipeline.load_ip_adapter(
         "h94/IP-Adapter",
         subfolder="sdxl_models",
-        weight_name="ip-adapter_sdxl.bin"
+        weight_name="ip-adapter_sdxl.bin",
+        local_files_only=False
     )
     text2img_pipeline.set_ip_adapter_scale(0.6)
 
     # Load image-to-image pipeline
     img2img_pipeline = AutoPipelineForImage2Image.from_pretrained(
         "stabilityai/stable-diffusion-xl-base-1.0",
-        torch_dtype=torch.float32  # Changed to float32 for CPU
+        torch_dtype=torch.float32,  # Changed to float32 for CPU
+        use_safetensors=True,
+        local_files_only=False
     )
+    
+    # Load IP-Adapter weights
     img2img_pipeline.load_ip_adapter(
         "h94/IP-Adapter",
         subfolder="sdxl_models",
-        weight_name="ip-adapter_sdxl.bin"
+        weight_name="ip-adapter_sdxl.bin",
+        local_files_only=False
     )
     img2img_pipeline.set_ip_adapter_scale(0.6)
 
