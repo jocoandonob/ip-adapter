@@ -6,6 +6,7 @@
   <em>AI-powered image generation with Stable Diffusion and IP-Adapter</em>
 </div>
 
+
 This application uses Stable Diffusion XL with IP-Adapter to generate images from text prompts and reference images. It features a modern, responsive UI built with Streamlit and supports both text-to-image and image-to-image generation with style transfer capabilities.
 
 ## Technologies Used
