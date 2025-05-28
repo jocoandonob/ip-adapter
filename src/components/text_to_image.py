@@ -13,7 +13,7 @@ from src.config.constants import (
     SUPPORTED_IMAGE_FORMATS
 )
 
-def render_text_to_image_tab():
+def render_text_to_image_tab(selected_style):
     # Create two columns for input and output
     col1, col2 = st.columns([1, 1])
 
@@ -21,15 +21,18 @@ def render_text_to_image_tab():
         # Input section
         st.markdown(load_template("cards").split("<!-- Input Card -->")[1].split("<!-- Parameters Card -->")[0], unsafe_allow_html=True)
         
-        # Model selection
-        selected_model = st.selectbox(
-            "Select Style:",
-            options=list(MODEL_CONFIGS.keys()),
-            format_func=lambda x: x
-        )
-        
         # Load model configuration
-        model_config = MODEL_CONFIGS[selected_model]
+        model_config = MODEL_CONFIGS[selected_style]
+        
+        # IP-Adapter image upload (only show if model has IP-Adapter config)
+        ip_adapter_image = None
+        if "ip_adapter" in model_config:
+            st.markdown("### Style Reference Image")
+            st.markdown("Upload an image to influence the generation style:")
+            ip_adapter_file = st.file_uploader("Upload style reference image:", type=SUPPORTED_IMAGE_FORMATS, key="txt2img_ip_adapter")
+            if ip_adapter_file is not None:
+                ip_adapter_image = Image.open(ip_adapter_file)
+                st.image(ip_adapter_image, caption="Style Reference Image", use_container_width=True)
         
         # Text input with a larger text area
         prompt = st.text_area(
@@ -38,16 +41,6 @@ def render_text_to_image_tab():
             placeholder=f"Describe the image you want to generate... (e.g., '{model_config['default_prompt']}')",
             value=model_config["default_prompt"]
         )
-
-        # IP-Adapter image upload (only show if model has IP-Adapter config)
-        ip_adapter_image = None
-        if "ip_adapter" in model_config:
-            st.markdown("### IP-Adapter Image")
-            st.markdown("Upload an image to influence the generation style:")
-            ip_adapter_file = st.file_uploader("Upload IP-Adapter image:", type=SUPPORTED_IMAGE_FORMATS)
-            if ip_adapter_file is not None:
-                ip_adapter_image = Image.open(ip_adapter_file)
-                st.image(ip_adapter_image, caption="IP-Adapter Image", use_container_width=True)
         
         # Parameters section
         st.markdown(load_template("cards").split("<!-- Parameters Card -->")[1].split("<!-- Output Card -->")[0], unsafe_allow_html=True)
@@ -76,7 +69,7 @@ def render_text_to_image_tab():
             try:
                 # Load the selected model
                 with st.spinner("Loading model..."):
-                    pipe = load_model(selected_model)
+                    pipe = load_model(selected_style)
                 
                 # Create progress bar and time display
                 progress_bar = st.progress(0)
@@ -145,7 +138,7 @@ def render_text_to_image_tab():
                 time_text.empty()
                 
                 # Display image
-                image_placeholder.image(image, caption=f"Generated Image using {selected_model} style", use_container_width=True)
+                image_placeholder.image(image, caption=f"Generated Image using {selected_style} style", use_container_width=True)
                 
                 # Add download button
                 buf = io.BytesIO()
@@ -153,7 +146,7 @@ def render_text_to_image_tab():
                 st.download_button(
                     label="⬇️ Download Image",
                     data=buf.getvalue(),
-                    file_name=f"{selected_model.lower()}_style_output.png",
+                    file_name=f"{selected_style.lower()}_style_output.png",
                     mime="image/png"
                 )
                 

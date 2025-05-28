@@ -14,7 +14,7 @@ from src.config.constants import (
     SUPPORTED_IMAGE_FORMATS
 )
 
-def render_image_to_image_tab():
+def render_image_to_image_tab(selected_style):
     # Create two columns for input and output
     col1, col2 = st.columns([1, 1])
 
@@ -22,24 +22,28 @@ def render_image_to_image_tab():
         # Input section
         st.markdown(load_template("cards").split("<!-- Input Card -->")[1].split("<!-- Parameters Card -->")[0], unsafe_allow_html=True)
         
-        # Model selection
-        selected_model = st.selectbox(
-            "Select Style (Image to Image):",
-            options=list(MODEL_CONFIGS.keys()),
-            format_func=lambda x: x,
-            key="img2img_model"
-        )
-        
         # Load model configuration
-        model_config = MODEL_CONFIGS[selected_model]
+        model_config = MODEL_CONFIGS[selected_style]
         
-        # Image upload
-        uploaded_file = st.file_uploader("Upload an image to transform:", type=SUPPORTED_IMAGE_FORMATS)
+        # Input image upload
+        st.markdown("### Input Image")
+        st.markdown("Upload the image you want to transform:")
+        input_file = st.file_uploader("Upload input image:", type=SUPPORTED_IMAGE_FORMATS, key="img2img_input")
         
-        if uploaded_file is not None:
-            # Display the uploaded image
-            init_image = Image.open(uploaded_file)
-            st.image(init_image, caption="Original Image", use_container_width=True)
+        if input_file is not None:
+            # Display the input image
+            input_image = Image.open(input_file)
+            st.image(input_image, caption="Input Image", use_container_width=True)
+        
+        # IP-Adapter image upload (only show if model has IP-Adapter config)
+        ip_adapter_image = None
+        if "ip_adapter" in model_config:
+            st.markdown("### Style Reference Image")
+            st.markdown("Upload an image to influence the generation style:")
+            ip_adapter_file = st.file_uploader("Upload style reference image:", type=SUPPORTED_IMAGE_FORMATS, key="img2img_ip_adapter")
+            if ip_adapter_file is not None:
+                ip_adapter_image = Image.open(ip_adapter_file)
+                st.image(ip_adapter_image, caption="Style Reference Image", use_container_width=True)
         
         # Text input with a larger text area
         prompt = st.text_area(
@@ -55,7 +59,7 @@ def render_image_to_image_tab():
         
         num_inference_steps = st.slider("Number of inference steps", 20, 50, DEFAULT_STEPS, key="img2img_steps")
         guidance_scale = st.slider("Guidance scale", 1.0, 20.0, DEFAULT_GUIDANCE_SCALE, key="img2img_guidance")
-        strength = st.slider("Transformation strength", 0.0, 1.0, DEFAULT_STRENGTH, key="img2img_strength")
+        strength = st.slider("Transformation strength", 0.0, 1.0, model_config.get("strength", DEFAULT_STRENGTH), key="img2img_strength")
         
         # Seed control
         seed = st.number_input("Seed (for reproducibility)", value=DEFAULT_SEED, step=1, key="img2img_seed")
@@ -70,7 +74,7 @@ def render_image_to_image_tab():
         # Placeholder for the generated image
         image_placeholder = st.empty()
         
-        if generate_button and prompt and uploaded_file is not None:
+        if generate_button and prompt and input_file is not None:
             # Create loading animation
             loading_container = st.empty()
             loading_container.markdown(load_template("loading"), unsafe_allow_html=True)
@@ -78,9 +82,7 @@ def render_image_to_image_tab():
             try:
                 # Load the selected model
                 with st.spinner("Loading models..."):
-                    pipes = load_model(selected_model, img2img=True)
-                    base_pipe = pipes["base"]
-                    refiner_pipe = pipes["refiner"]
+                    pipe = load_model(selected_style, img2img=True)
                 
                 # Create progress bar and time display
                 progress_bar = st.progress(0)
@@ -123,39 +125,26 @@ def render_image_to_image_tab():
                 # Set deterministic seed
                 generator = torch.Generator(device="cpu").manual_seed(seed)
                 
-                # Generate image with base model
-                with torch.no_grad():
-                    # First stage: Generate with base model
-                    progress_text.markdown(
-                        '<span style="color: #FFD700">Stage 1: Generating with base model...</span>', 
-                        unsafe_allow_html=True
-                    )
-                    base_image = base_pipe(
-                        prompt=prompt,
-                        image=init_image,
-                        num_inference_steps=num_inference_steps,
-                        guidance_scale=guidance_scale,
-                        strength=strength,
-                        generator=generator,
-                        callback=progress_callback,
-                        callback_steps=1
-                    ).images[0]
-                    
-                    # Second stage: Refine with refiner model
-                    progress_text.markdown(
-                        '<span style="color: #FFD700">Stage 2: Refining with refiner model...</span>', 
-                        unsafe_allow_html=True
-                    )
-                    refined_image = refiner_pipe(
-                        prompt=prompt,
-                        image=base_image,
-                        num_inference_steps=num_inference_steps,
-                        guidance_scale=guidance_scale,
-                        strength=strength,
-                        generator=generator,
-                        callback=progress_callback,
-                        callback_steps=1
-                    ).images[0]
+                # Prepare generation parameters
+                gen_params = {
+                    "prompt": prompt,
+                    "image": input_image,
+                    "num_inference_steps": num_inference_steps,
+                    "guidance_scale": guidance_scale,
+                    "strength": strength,
+                    "generator": generator,
+                    "callback": progress_callback,
+                    "callback_steps": 1
+                }
+
+                # Add IP-Adapter image if available
+                if ip_adapter_image is not None and "ip_adapter" in model_config:
+                    gen_params["ip_adapter_image"] = ip_adapter_image
+                    if "negative_prompt" in model_config:
+                        gen_params["negative_prompt"] = model_config["negative_prompt"]
+                
+                # Generate image with progress callback
+                image = pipe(**gen_params).images[0]
                 
                 # Clear loading animation and progress
                 loading_container.empty()
@@ -163,16 +152,16 @@ def render_image_to_image_tab():
                 progress_text.empty()
                 time_text.empty()
                 
-                # Display refined image
-                image_placeholder.image(refined_image, caption="Refined Image", use_container_width=True)
+                # Display image
+                image_placeholder.image(image, caption=f"Transformed Image using {selected_style} style", use_container_width=True)
                 
                 # Add download button
                 buf = io.BytesIO()
-                refined_image.save(buf, format="PNG")
+                image.save(buf, format="PNG")
                 st.download_button(
-                    label="⬇️ Download Refined Image",
+                    label="⬇️ Download Transformed Image",
                     data=buf.getvalue(),
-                    file_name=f"{selected_model.lower()}_style_refined.png",
+                    file_name=f"{selected_style.lower()}_style_transformed.png",
                     mime="image/png"
                 )
                 
@@ -184,7 +173,7 @@ def render_image_to_image_tab():
                 time_text.empty()
                 st.error(f"Error transforming image: {str(e)}")
         elif generate_button:
-            if not uploaded_file:
-                st.warning("⚠️ Please upload an image first.")
+            if not input_file:
+                st.warning("⚠️ Please upload an input image first.")
             elif not prompt:
                 st.warning("⚠️ Please enter a prompt first.") 
